@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          PAPRIKA ELİTE TERMİNAL  v6.0                           ║
+║          PAPRIKA ELİTE TERMİNAL  v6.0  (Düzeltilmiş)           ║
 ║──────────────────────────────────────────────────────────────────║
 ║  Kurulum:                                                        ║
 ║    pip install streamlit yfinance requests pandas numpy          ║
@@ -12,11 +12,18 @@
 ║  Veri Kaynakları:                                                ║
 ║   • Hisse / BIST100 : yfinance (Yahoo Finance, ~15dk gecikme)   ║
 ║   • Döviz / Altın   : TCMB Resmi XML (anlık)                    ║
-║   • Kripto          : CoinGecko (anlık, key yok)                ║
+║   • Kripto          : CoinGecko (anlık, key yok)                 ║
 ║   • Petrol          : yfinance BZ=F                              ║
 ║   • Haberler        : Google News RSS (XML, ücretsiz)            ║
 ║   • Duygu Endeksi   : RSI/MACD/Hacim bazlı hesaplanmış           ║
 ╚══════════════════════════════════════════════════════════════════╝
+
+DÜZELTMELER (v6.0 → v6.0-fix):
+  [1] top10_analiz: macd NameError → macd_son değişkeni ile kapsam düzeltildi
+  [2] top10_analiz: dip_pct NameError → varsayılan 50.0 ile başlatıldı
+  [3] haber_duyarlilik_skoru: 40 senkron HTTP → ThreadPoolExecutor(max_workers=8)
+  [4] fp_radar: dip_uzaklik NameError → varsayılan 50.0 ile başlatıldı
+  [5] st_autorefresh eksikse st.warning ile kullanıcı bilgilendiriliyor
 """
 
 import streamlit as st
@@ -26,17 +33,20 @@ import requests
 import yfinance as yf
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import html as html_mod
 
 # ── SAYFA ────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Paprika Elite Terminal", layout="wide",
                    initial_sidebar_state="collapsed")
+
+# [DÜZELTME 5] Autorefresh eksikse kullanıcıyı bilgilendir
 try:
     from streamlit_autorefresh import st_autorefresh
     st_autorefresh(interval=60_000, key="paprika_v6")
 except ImportError:
-    pass
+    st.warning("⚠️ Otomatik yenileme devre dışı. Aktif etmek için: pip install streamlit-autorefresh")
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -105,7 +115,7 @@ hr{display:none!important}
 .rc-up{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:#16a34a;margin-top:4px}
 .rc-dn{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:#dc2626;margin-top:4px}
 
-/* TABLO — Arial 13px, 11px padding */
+/* TABLO */
 .mw{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden}
 .mt{width:100%;border-collapse:collapse;font-size:13px;font-family:Arial,sans-serif}
 .mt thead tr{background:#f1f5f9}
@@ -127,7 +137,7 @@ hr{display:none!important}
 .td-s{font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#2563eb}
 .td-y{font-family:Arial,sans-serif;font-size:13px;color:#334155;line-height:1.5;max-width:240px;font-weight:400}
 
-/* ══ SENSOR — Beyaz tema, sol renkli bordür ile gruplar arası ayrım ════ */
+/* SENSOR */
 .sensor-wrap{background:#f8fafc;border-radius:16px;padding:20px 24px 24px;
              border:1.5px solid #e2e8f0;margin:0 0 2px}
 .sensor-hdr{display:flex;align-items:center;gap:10px;margin-bottom:16px;
@@ -137,7 +147,7 @@ hr{display:none!important}
 .sensor-hdr-sub{margin-left:auto;font-size:11px;color:#94a3b8}
 .sensor-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 
-/* F/P kart — mavi sol bordür */
+/* F/P kart */
 .fp-card{background:#fff;border:1.5px solid #dde3ec;border-left:4px solid #2563eb;
          border-radius:12px;padding:18px 20px}
 .fp-ttl{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
@@ -158,7 +168,7 @@ hr{display:none!important}
 .fpb-b{background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd}
 .fpb-a{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
 
-/* Hacim kart — yeşil sol bordür */
+/* Hacim kart */
 .hc-card{background:#fff;border:1.5px solid #dde3ec;border-left:4px solid #16a34a;
          border-radius:12px;padding:18px 20px}
 .hc-ttl{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
@@ -179,7 +189,7 @@ hr{display:none!important}
 .hc-lbl{font-family:'IBM Plex Sans',sans-serif;color:#64748b}
 .hc-val{font-family:'IBM Plex Mono',monospace;color:#1e293b;font-weight:700;font-size:12px}
 
-/* Duygu kart — mor sol bordür */
+/* Duygu kart */
 .dg-card{background:#fff;border:1.5px solid #dde3ec;border-left:4px solid #7c3aed;
          border-radius:12px;padding:18px 20px}
 .dg-ttl{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
@@ -235,55 +245,35 @@ hr{display:none!important}
 .score-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,#2563eb,#38bdf8)}
 
 /* ══ MOBİL RESPONSIVE ══════════════════════════════════════════════════════ */
-
-/* --- Topbar: masaüstü satır, mobilde sakla --- */
 .topbar-desktop { display:flex; }
 .topbar-mobile  { display:none; }
-
-/* --- Section başlıkları kısa versiyonu --- */
 .st-long  { display:inline; }
 .st-short { display:none; }
 
 @media (max-width: 768px) {
-
-  /* Genel sayfa padding */
   .stApp { font-size:14px; }
   .sw { padding:10px 12px 8px !important; }
-
-  /* ── Top bar: masaüstü gizle, mobil göster ── */
   .topbar-desktop { display:none !important; }
   .topbar-mobile  { display:block !important; }
-
-  /* Section başlık kısa */
   .st-long  { display:none !important; }
   .st-short { display:inline !important; }
   .st { font-size:10px !important; letter-spacing:1.2px !important; }
   .ss { font-size:10px !important; }
-
-  /* Radar: 2 sütun */
   .rg { grid-template-columns:repeat(2,1fr) !important; gap:6px !important; }
   .rc { padding:10px 8px !important; }
   .rc-tic { font-size:12px !important; }
   .rc-fiy { font-size:12px !important; }
   .rc-vol { font-size:9px !important; }
-
-  /* Matris: yatay kaydır */
   .mw { overflow-x:auto !important; -webkit-overflow-scrolling:touch; }
   .mt { font-size:12px !important; min-width:580px; }
   .mt th { padding:8px 10px !important; font-size:10px !important; }
   .mt td { padding:8px 10px !important; }
   .td-h  { font-size:12px !important; }
   .td-f,.td-ht,.td-u,.td-d,.td-a,.td-y { font-size:11px !important; }
-
-  /* Sensor grid: tek sütun */
   .sensor-grid { grid-template-columns:1fr !important; }
   .sensor-wrap { padding:12px 12px 16px !important; }
-
-  /* Intel / News CSS grid: tek sütun */
   .ig { grid-template-columns:1fr !important; }
   .ng { grid-template-columns:1fr !important; }
-
-  /* Inline style grid'ler: tek sütun */
   [style*="grid-template-columns:1fr 1fr 1fr"],
   [style*="grid-template-columns: 1fr 1fr 1fr"],
   [style*="repeat(3,1fr)"],
@@ -292,8 +282,6 @@ hr{display:none!important}
   [style*="grid-template-columns: 1fr 1fr"],
   [style*="repeat(2,1fr)"],
   [style*="repeat(2, 1fr)"] { grid-template-columns:1fr !important; }
-
-  /* Footer */
   .footer { flex-direction:column; gap:4px; padding:10px 12px;
             font-size:10px !important; }
   .footer span:nth-child(2),.footer span:nth-child(3) { color:#334155; }
@@ -308,13 +296,13 @@ hr{display:none!important}
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  BIST100 — Yahoo Finance'de çalışan semboller (Mart 2026 doğrulamalı)
+#  BIST100 SEMBOLLERİ
 # ═══════════════════════════════════════════════════════════════════════════════
 BIST100 = [
     "GARAN","THYAO","ASELS","EREGL","TUPRS","KCHOL","YKBNK","SAHOL",
     "SISE" ,"TOASO","FROTO","KOZAL","BIMAS","AKBNK","HALKB","VAKBN",
     "PGSUS","TCELL","DOHOL","EKGYO","ENKAI","KRDMD","PETKM","TAVHL",
-    "ARCLK","ISCTR","SOKM ","TTKOM","SASA" ,"AGHOL","ALGYO","CCOLA",
+    "ARCLK","ISCTR","SOKM" ,"TTKOM","SASA" ,"AGHOL","ALGYO","CCOLA",
     "CIMSA","DOAS" ,"EGEEN","MPARK","NETAS","ODAS" ,"OYAKC","PARSN",
     "AKSEN","AEFES","AKGRT","ALFAS","BRISA","CANTE","CUSAN","DEVA",
     "EKOS" ,"ENJSA","GESAN","GUBRF","IHLGM","IHEVA","IPEKE","ISGYO",
@@ -322,10 +310,8 @@ BIST100 = [
     "OTKAR","OYAYO","PAPIL","PENTA","QUAGR","RYSAS","SARKY","SELVA",
     "SMRTG","TSKB" ,"TTRAK","ULKER","VESBE","YATAS","ZOREN",
 ]
-# Boşlukları temizle
 BIST100 = [s.strip() for s in BIST100]
 
-# Radar için en çok hacim yapan 8 sembol — dinamik hesaplanıyor ama fallback liste:
 RADAR_FALLBACK = ["GARAN","THYAO","ASELS","EREGL","TUPRS","KCHOL","YKBNK","SAHOL"]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -355,40 +341,26 @@ def puan_hesapla(closes, volumes):
         macd, sig = hesapla_macd(closes)
         macd_v = macd.iloc[-1]
         sig_v  = sig.iloc[-1]
-
-        # Momentum: son 5 günlük getiri
         mom = ((closes.iloc[-1] - closes.iloc[-6]) / closes.iloc[-6]) * 100
-
-        # Hacim artışı: bugün vs 5günlük ort
         vol_artis = 0
         if volumes is not None and len(volumes) >= 6:
             vol_ort = volumes.iloc[-6:-1].mean()
             if vol_ort > 0:
                 vol_artis = ((volumes.iloc[-1] - vol_ort) / vol_ort) * 100
-
-        # Puanlama (0-100)
         puan = 0
-        # RSI: 30-70 arası nötr, 45-60 ideal alım
         if 40 <= rsi <= 60:   puan += 25
-        elif 30 <= rsi < 40:  puan += 35   # Aşırı satış — tepki potansiyeli
+        elif 30 <= rsi < 40:  puan += 35
         elif 60 < rsi <= 70:  puan += 20
-        elif rsi < 30:        puan += 30   # Çok aşırı satış
+        elif rsi < 30:        puan += 30
         elif rsi > 70:        puan += 10
-
-        # MACD kesişim
-        if macd_v > sig_v:    puan += 25   # Boğa sinyali
+        if macd_v > sig_v:    puan += 25
         else:                 puan += 5
-
-        # Momentum
         if mom > 3:           puan += 20
         elif mom > 0:         puan += 15
         elif mom > -2:        puan += 8
-
-        # Hacim artışı
         if vol_artis > 50:    puan += 15
         elif vol_artis > 20:  puan += 10
         elif vol_artis > 0:   puan += 5
-
         return min(float(puan), 100)
     except Exception:
         return 0.0
@@ -399,12 +371,6 @@ def puan_hesapla(closes, volumes):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def radar_hacim_cek():
-    """
-    En yüksek GÜNLÜK hacimli 8 hisseyi çeker.
-    Yöntem: history(period='5d') ile son günün gerçek TL hacmini hesaplar.
-    TL Hacim = Kapanış Fiyatı × İşlem Adedi
-    Sıralama: Bugünkü TL hacmine göre büyükten küçüğe.
-    """
     hedefler = [
         "GARAN","THYAO","ASELS","EREGL","TUPRS","KCHOL","YKBNK","SAHOL",
         "SISE","TOASO","FROTO","AKBNK","HALKB","VAKBN","PGSUS","TCELL",
@@ -422,30 +388,24 @@ def radar_hacim_cek():
             vol_adet = float(vol.iloc[-1])
             prev     = float(clz.iloc[-2]) if len(clz) >= 2 else price
             chg      = round(((price - prev) / prev) * 100, 2) if prev > 0 else 0
-            # Gerçek TL hacmi
             tl_hacim = price * vol_adet
             if price > 0 and tl_hacim > 0:
                 results.append({
                     "sym":     sym,
                     "price":   round(price, 2),
                     "chg":     chg,
-                    "vol_tl":  tl_hacim,        # Gerçek TL hacmi
-                    "vol_lot": vol_adet,         # Lot adedi
+                    "vol_tl":  tl_hacim,
+                    "vol_lot": vol_adet,
                 })
         except Exception:
             continue
-
     results.sort(key=lambda x: x["vol_tl"], reverse=True)
     return results[:8]
 
 
-# ── Haber/sosyal duyarlılık skoru (Google News kelime frekansı) ──────────────
+# [DÜZELTME 3] Paralel HTTP istekleri — ThreadPoolExecutor
 @st.cache_data(ttl=600, show_spinner=False)
 def haber_duyarlilik_skoru():
-    """
-    Her hisse için Google News'te geçen 24h haber sayısı ve pozitif/negatif
-    kelime oranından -10 ile +10 arasında duyarlılık skoru üretir.
-    """
     BIST_LIST = [
         "GARAN","THYAO","ASELS","EREGL","TUPRS","KCHOL","YKBNK","SAHOL",
         "SISE","TOASO","FROTO","KOZAL","BIMAS","AKBNK","HALKB","VAKBN",
@@ -458,25 +418,30 @@ def haber_duyarlilik_skoru():
     NEGATIF = ["düşüş","zarar","satış","baskı","risk","endişe","uyarı","negatif",
                "zayıf","kaybetti","geriledi","soruşturma","ceza","borç","kriz"]
     HDR = {"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-    skorlar = {}
-    for sym in BIST_LIST:
+
+    def _cek(sym):
         try:
             url = (f"https://news.google.com/rss/search?q={sym}+hisse+borsa"
                    f"&hl=tr&gl=TR&ceid=TR:tr")
             r = requests.get(url, headers=HDR, timeout=6)
             r.raise_for_status()
             text_lower = r.text.lower()
-            # Haber sayısı (item etiketi sayısı)
             haber_sayi = text_lower.count("<item>")
             poz = sum(text_lower.count(k) for k in POZITIF)
             neg = sum(text_lower.count(k) for k in NEGATIF)
             toplam_kelime = poz + neg + 1
-            # -10 ile +10 arası normalize skor
             oran = (poz - neg) / toplam_kelime
             skor = round(min(max(oran * 20 + haber_sayi * 0.5, -10), 10), 1)
-            skorlar[sym] = skor
+            return sym, skor
         except Exception:
-            skorlar[sym] = 0.0
+            return sym, 0.0
+
+    skorlar = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_cek, s): s for s in BIST_LIST}
+        for f in as_completed(futures):
+            sym, skor = f.result()
+            skorlar[sym] = skor
     return skorlar
 
 
@@ -484,13 +449,10 @@ def haber_duyarlilik_skoru():
 def top10_analiz():
     """
     ÇOK BOYUTLU ANALİZ MOTORİ — 4 Katman:
-    ─────────────────────────────────────────────────────────
     1. TEKNİK  (40 puan): RSI + MACD + Momentum + Hacim artışı
     2. DUYGU   (25 puan): Haber duyarlılığı + Google News frekansı
     3. ANALİTİK(25 puan): 52H dip/zirve konumu + Bollinger bant
     4. SOSYAL  (10 puan): Haber sayısı trendine göre ilgi skoru
-    ─────────────────────────────────────────────────────────
-    Toplam: 100 puan → Top 10 seçilir
     """
     ANALIZ_LISTESI = [
         "GARAN","THYAO","ASELS","EREGL","TUPRS","KCHOL","YKBNK","SAHOL",
@@ -500,7 +462,6 @@ def top10_analiz():
         "BRISA","ENJSA","MGROS","OTKAR","ULKER","VESBE","TSKB","TTRAK",
     ]
 
-    # Haber/sosyal skorları paralelde çek
     haber_sk = haber_duyarlilik_skoru()
 
     rows = []
@@ -519,28 +480,32 @@ def top10_analiz():
             vol_son = float(volumes.iloc[-1]) if len(volumes) >= 1 else 0
             tl_hacim = price * vol_son
 
-            # ── 1. TEKNİK PUAN (0-40) ────────────────────────────────────────
+            # ── 1. TEKNİK PUAN (0-40) ─────────────────────────────────────
             tek_puan = 0
             rsi_son = 50.0
             if len(closes) >= 15:
                 rsi_son = float(hesapla_rsi(closes).iloc[-1])
-            # RSI: aşırı satış bölgesi en yüksek puan
+
             if rsi_son < 30:    tek_puan += 16
             elif rsi_son < 40:  tek_puan += 14
             elif rsi_son < 50:  tek_puan += 11
             elif rsi_son < 60:  tek_puan += 8
             elif rsi_son < 70:  tek_puan += 5
             else:               tek_puan += 2
-            # MACD kesişim
+
+            # [DÜZELTME 1] macd_son ile kapsam sorunu giderildi
+            macd_son = 0.0
             if len(closes) >= 30:
                 macd, sig = hesapla_macd(closes)
-                if float(macd.iloc[-1]) > float(sig.iloc[-1]):
-                    tek_puan += 12  # Boğa kesişimi
+                macd_son = float(macd.iloc[-1])
+                sig_son  = float(sig.iloc[-1])
+                if macd_son > sig_son:
+                    tek_puan += 12
                     if float(macd.iloc[-2]) <= float(sig.iloc[-2]):
                         tek_puan += 4  # Taze kesişim bonus
                 else:
                     tek_puan += 2
-            # Hacim artışı
+
             if len(volumes) >= 10:
                 vol_ort = float(volumes.iloc[-10:-1].mean())
                 if vol_ort > 0:
@@ -551,53 +516,54 @@ def top10_analiz():
                     elif vol_art > 0:  tek_puan += 2
             tek_puan = min(tek_puan, 40)
 
-            # ── 2. HABER/DUYGU PUANI (0-25) ──────────────────────────────────
-            haber_skor = haber_sk.get(sym, 0.0)  # -10 ile +10 arası
-            # -10→+10 aralığını 0→25 aralığına normalize et
+            # ── 2. HABER/DUYGU PUANI (0-25) ──────────────────────────────
+            haber_skor = haber_sk.get(sym, 0.0)
             duygu_puan = int((haber_skor + 10) / 20 * 25)
             duygu_puan = min(max(duygu_puan, 0), 25)
 
-            # ── 3. ANALİTİK PUAN (0-25) ───────────────────────────────────────
+            # ── 3. ANALİTİK PUAN (0-25) ──────────────────────────────────
             analitik = 0
-            # 52-hafta pozisyonu (dibe yakın = ucuz = yüksek puan)
+
+            # [DÜZELTME 2] dip_pct varsayılan değeri ile kapsam sorunu giderildi
+            dip_pct = 50.0
             h52 = t.history(period="252d")
             clz52 = h52["Close"].dropna() if len(h52) > 0 else closes
             low52  = float(clz52.min())
             high52 = float(clz52.max())
             rng52  = high52 - low52
             if rng52 > 0:
-                dip_pct = (price - low52) / rng52 * 100  # 0=dip, 100=zirve
-                if dip_pct <= 15:    analitik += 14  # Dibe çok yakın
-                elif dip_pct <= 30:  analitik += 11
-                elif dip_pct <= 50:  analitik += 7
-                elif dip_pct <= 70:  analitik += 4
-                else:                analitik += 1
-            # Bollinger Band alt bant yakınlığı
+                dip_pct = (price - low52) / rng52 * 100
+
+            if dip_pct <= 15:    analitik += 14
+            elif dip_pct <= 30:  analitik += 11
+            elif dip_pct <= 50:  analitik += 7
+            elif dip_pct <= 70:  analitik += 4
+            else:                analitik += 1
+
             if len(closes) >= 20:
                 sma20 = float(closes.rolling(20).mean().iloc[-1])
                 std20 = float(closes.rolling(20).std().iloc[-1])
                 lower_band = sma20 - 2 * std20
                 if std20 > 0:
-                    bb_pos = (price - lower_band) / (4 * std20)  # 0=alt bant, 1=üst bant
-                    if bb_pos <= 0.2:    analitik += 11  # Alt banda çok yakın
+                    bb_pos = (price - lower_band) / (4 * std20)
+                    if bb_pos <= 0.2:    analitik += 11
                     elif bb_pos <= 0.4:  analitik += 8
                     elif bb_pos <= 0.6:  analitik += 5
                     else:                analitik += 2
             analitik = min(analitik, 25)
 
-            # ── 4. SOSYAL/İLGİ PUANI (0-10) ───────────────────────────────────
-            # Haber sayısı fazla + pozitif trend = yüksek puan
+            # ── 4. SOSYAL/İLGİ PUANI (0-10) ──────────────────────────────
             sosyal = min(max(int((haber_skor + 10) / 4), 0), 10)
 
-            # ── TOPLAM ────────────────────────────────────────────────────────
+            # ── TOPLAM ───────────────────────────────────────────────────
             toplam_puan = tek_puan + duygu_puan + analitik + sosyal
 
-            # Sinyaller etiket
-            if rsi_son < 35 and float(macd.iloc[-1] if len(closes) >= 30 else 0) > 0:
+            # [DÜZELTME 1] macd_son kullanılıyor, artık NameError yok
+            if rsi_son < 35 and macd_son > 0:
                 sinyal_lbl = "GÜÇLÜ AL"
             elif rsi_son < 45 and duygu_puan >= 15:
                 sinyal_lbl = "AL"
-            elif dip_pct <= 20 if rng52 > 0 else False:
+            elif dip_pct <= 20:
                 sinyal_lbl = "DİP BÖLGE"
             elif haber_skor >= 5:
                 sinyal_lbl = "HABER POZ."
@@ -640,7 +606,7 @@ def makro_cek():
         PETROL=0.0,
     )
 
-    # ── TCMB XML — Sadece USD ve EUR (TCMB XML'de altın YOK) ─────────────────
+    # TCMB XML
     try:
         r = requests.get("https://www.tcmb.gov.tr/kurlar/today.xml",
                          timeout=8, headers={"User-Agent": "Mozilla/5.0"})
@@ -658,16 +624,13 @@ def makro_cek():
     except Exception:
         pass
 
-    # ── Altın: truncgil.com ücretsiz JSON API ─────────────────────────────────
-    # Endpoint: https://finans.truncgil.com/v4/today.json
-    # Gram altın TL fiyatı doğrudan, ons = gram*31.1035/kur ile USD'ye çevrilir
+    # Altın: truncgil.com
     try:
         r = requests.get(
             "https://finans.truncgil.com/v4/today.json",
             timeout=8, headers={"User-Agent": "Mozilla/5.0"}
         )
         d = r.json()
-        # Gram altın anahtarlarını dene
         for key in ["gram-altin", "GA", "Gram Altın", "gram_altin"]:
             entry = d.get(key, {})
             if entry:
@@ -680,7 +643,7 @@ def makro_cek():
     except Exception:
         pass
 
-    # ONS altın: yfinance GC=F (en güvenilir USD ons kaynağı) ─────────────────
+    # ONS altın: yfinance GC=F
     try:
         gc = yf.Ticker("GC=F").history(period="3d")
         clz = gc["Close"].dropna()
@@ -689,7 +652,7 @@ def makro_cek():
     except Exception:
         pass
 
-    # Gram fallback: ons * kur / 31.1035
+    # Gram fallback
     if m["GRAM_ALTIN"] == 0 and m["ONS_ALTIN"] > 0 and m["USD_TRY"] > 0:
         m["GRAM_ALTIN"] = round(m["ONS_ALTIN"] * m["USD_TRY"] / 31.1035, 1)
 
@@ -706,7 +669,7 @@ def makro_cek():
     except Exception:
         pass
 
-    # BIST100 + Hacim
+    # BIST100
     try:
         t   = yf.Ticker("XU100.IS")
         h   = t.history(period="2d")
@@ -736,13 +699,6 @@ def makro_cek():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def duygu_endeksi_hesapla():
-    """
-    BIST100 geneli duygu endeksi:
-    - 20 büyük BIST hissesinin RSI ortalaması
-    - Yükselen / Düşen hisse oranı
-    - BIST100 endeksi 5 günlük momentum
-    → 0-100 arası endeks
-    """
     BIST_GENEL = [
         "GARAN.IS","THYAO.IS","ASELS.IS","EREGL.IS","TUPRS.IS",
         "KCHOL.IS","YKBNK.IS","SAHOL.IS","SISE.IS","TOASO.IS",
@@ -772,7 +728,6 @@ def duygu_endeksi_hesapla():
         ort_rsi = float(np.mean(rsi_listesi))
         oran    = yukselenler / max(toplam, 1)
 
-        # BIST100 endeksi 5 günlük momentum katkısı
         momentum_katki = 0
         try:
             h5  = yf.Ticker("XU100.IS").history(period="7d")
@@ -783,7 +738,6 @@ def duygu_endeksi_hesapla():
         except Exception:
             pass
 
-        # Endeks = RSI ağırlık %60 + Yükselen/Düşen oran %30 + Momentum %10
         endeks = int(ort_rsi * 0.60 + oran * 100 * 0.30 + (50 + momentum_katki) * 0.10)
         endeks = max(0, min(100, endeks))
 
@@ -800,10 +754,6 @@ def duygu_endeksi_hesapla():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def haber_cek():
-    """
-    Google News Türkiye finans RSS — en güvenilir ücretsiz kaynak.
-    Fallback: yfinance news.
-    """
     FEEDS = [
         ("https://news.google.com/rss/search?q=borsa+istanbul+hisse+BIST&hl=tr&gl=TR&ceid=TR:tr", "G.NEWS"),
         ("https://news.google.com/rss/search?q=KAP+kamuoyu+aydınlatma+hisse+bildirimi&hl=tr&gl=TR&ceid=TR:tr", "KAP"),
@@ -822,26 +772,20 @@ def haber_cek():
         try:
             r = requests.get(url, headers=HDR, timeout=10)
             r.raise_for_status()
-            # XML namespace temizle
             text = re.sub(r'\s+xmlns(?::\w+)?="[^"]*"', '', r.text)
             text = re.sub(r'<\?xml[^>]+\?>', '', text)
             root = ET.fromstring(text.encode("utf-8","replace"))
             items = root.findall(".//item") or root.findall(".//entry")
             for item in items[:6]:
-                # Başlık
                 t_el = item.find("title")
                 title = ""
                 if t_el is not None:
                     raw = t_el.text or ""
-                    # CDATA kaldır
                     raw = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', raw, flags=re.DOTALL)
-                    # HTML entity decode
                     title = html_mod.unescape(raw).strip()
-                    # Kaynak adını başlıktan çıkar (Google News ekler)
                     title = re.sub(r'\s*-\s*[^-]+$', '', title).strip()
                 if len(title) < 8:
                     continue
-                # Zaman
                 zaman = datetime.now().strftime("%H:%M")
                 for tag in ("pubDate","published","updated"):
                     el = item.find(tag)
@@ -857,7 +801,6 @@ def haber_cek():
                             except ValueError:
                                 continue
                         break
-                # Link
                 link_el = item.find("link")
                 link = (link_el.text or "").strip() if link_el is not None else ""
                 haberler.append((zaman, kaynak, title[:110], link))
@@ -878,23 +821,16 @@ def haber_cek():
         except Exception:
             pass
 
-
     return haberler[:12]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def sosyal_trend_cek():
-    """
-    Günün BIST100 finans gündemini Google News RSS üzerinden çeker.
-    Sadece BUGÜNÜN haberleri gösterilir, saate göre tersten sıralanır.
-    Twitter Bearer Token varsa gerçek tweet akışı kullanılır.
-    """
     import os
     today_str = datetime.now().strftime("%Y-%m-%d")
-    today_dmm = datetime.now().strftime("%d.%m.%Y")
     trendler  = []
 
-    # ── Gerçek Twitter API (Bearer Token varsa) ───────────────────────────────
+    # Gerçek Twitter API (Bearer Token varsa)
     bearer = os.environ.get("TWITTER_BEARER_TOKEN", "")
     if bearer:
         try:
@@ -914,7 +850,6 @@ def sosyal_trend_cek():
                 for tw in r.json().get("data", [])[:8]:
                     text     = (tw.get("text") or "").strip()[:110]
                     created  = tw.get("created_at", "")
-                    # Sadece bugün
                     if today_str not in created:
                         continue
                     zaman = created[11:16] if len(created) >= 16 else datetime.now().strftime("%H:%M")
@@ -924,7 +859,7 @@ def sosyal_trend_cek():
         except Exception:
             pass
 
-    # ── Google News RSS — BIST100 finans konuları, sadece bugün ──────────────
+    # Google News RSS — sadece bugün
     if len(trendler) < 6:
         FEEDS = [
             "https://news.google.com/rss/search?q=BIST100+borsa+hisse&hl=tr&gl=TR&ceid=TR:tr",
@@ -932,9 +867,6 @@ def sosyal_trend_cek():
             "https://news.google.com/rss/search?q=BIST+finans+yatırım+2026&hl=tr&gl=TR&ceid=TR:tr",
         ]
         HDR = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-        import re as _re
-        import xml.etree.ElementTree as _ET
-        import html as _html
 
         for url in FEEDS:
             if len(trendler) >= 8:
@@ -942,18 +874,16 @@ def sosyal_trend_cek():
             try:
                 r = requests.get(url, headers=HDR, timeout=7)
                 r.raise_for_status()
-                text_x = _re.sub(r'\s+xmlns(?::\w+)?="[^"]*"', '', r.text)
-                root = _ET.fromstring(text_x.encode("utf-8", "replace"))
+                text_x = re.sub(r'\s+xmlns(?::\w+)?="[^"]*"', '', r.text)
+                root = ET.fromstring(text_x.encode("utf-8", "replace"))
                 for item in root.findall(".//item"):
-                    # Başlık
                     t_el = item.find("title")
                     if t_el is None: continue
-                    raw_t = _re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'', t_el.text or "", flags=_re.DOTALL)
-                    title = _html.unescape(raw_t).strip()
-                    title = _re.sub(r'\s*-\s*[^-]+$', '', title).strip()
+                    raw_t = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'', t_el.text or "", flags=re.DOTALL)
+                    title = html_mod.unescape(raw_t).strip()
+                    title = re.sub(r'\s*-\s*[^-]+$', '', title).strip()
                     if len(title) < 8: continue
 
-                    # Tarih — sadece bugünü al
                     p_el = item.find("pubDate")
                     zaman = None
                     if p_el is not None and p_el.text:
@@ -963,17 +893,14 @@ def sosyal_trend_cek():
                                     "%a, %d %b %Y %H:%M:%S +0000"):
                             try:
                                 dt_obj = datetime.strptime(raw_d, fmt)
-                                # Timezone-aware → naive UTC
                                 if dt_obj.tzinfo:
                                     from datetime import timezone
                                     dt_obj = dt_obj.astimezone(timezone.utc).replace(tzinfo=None)
-                                # Sadece bugünkü haberler
                                 if dt_obj.strftime("%Y-%m-%d") == today_str:
                                     zaman = dt_obj.strftime("%H:%M")
                                 break
                             except Exception:
                                 continue
-                    # Tarih eşleşmediyse atla
                     if zaman is None: continue
 
                     link_el = item.find("link")
@@ -982,18 +909,12 @@ def sosyal_trend_cek():
             except Exception:
                 continue
 
-    # Saate göre sırala (en yeni üste)
     trendler.sort(key=lambda x: x[0], reverse=True)
     return trendler[:8]
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def istihbarat_analiz():
-    """
-    Piyasa İstihbaratı için haber + duygu analizi:
-    Son haberleri çekip pozitif/negatif sektör etkilerini çıkarır.
-    """
-    import re, xml.etree.ElementTree as ET, html as html_mod
     SEKTORLER = {
         "bankacılık": ["GARAN","AKBNK","YKBNK","HALKB","VAKBN","ISCTR"],
         "havacılık":  ["THYAO","PGSUS"],
@@ -1026,7 +947,7 @@ def istihbarat_analiz():
             for item in root.findall(".//item")[:6]:
                 t_el = item.find("title")
                 if t_el is None: continue
-                raw = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'', t_el.text or "", flags=re.DOTALL)
+                raw = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'', t_el.text or "", flags=re.DOTALL)
                 title = html_mod.unescape(raw).strip()
                 title = re.sub(r'\s*-\s*[^-]+$', '', title).strip()
                 p_el = item.find("pubDate")
@@ -1043,14 +964,12 @@ def istihbarat_analiz():
         except Exception:
             continue
 
-    # Her haberi analiz et
     sonuclar = []
     for h in haberler_raw:
         title_lower = h["title"].lower()
         poz = sum(title_lower.count(k) for k in POZITIF_KW)
         neg = sum(title_lower.count(k) for k in NEGATIF_KW)
         duygu = "pozitif" if poz > neg else ("negatif" if neg > poz else "nötr")
-        # Sektör tespiti
         ilgili_sektor = "genel"
         for sektor, hisseler in SEKTORLER.items():
             if sektor in title_lower or any(h_.lower() in title_lower for h_ in hisseler):
@@ -1066,7 +985,6 @@ def istihbarat_analiz():
             "neg":     neg,
         })
 
-    # En etkili haberleri öne al (pozitif veya negatif, nötr değil)
     sonuclar.sort(key=lambda x: (x["duygu"] != "nötr", x["poz"] + x["neg"]), reverse=True)
     return sonuclar[:8]
 
@@ -1075,12 +993,7 @@ def istihbarat_analiz():
 def fp_radar():
     """
     F/P Değerleme Radarı — Top 5.
-    Yahoo Finance BIST hisselerinde t.info genellikle boş döndüğü için
-    SADECE fiyat geçmişi (60 günlük) tabanlı teknik+değerleme puanı kullanılır:
-      • RSI: Ucuz/aşırı satış bölgesi yüksek puan
-      • 52-hafta dip uzaklığı: Dibe yakın = ucuz
-      • Momentum eğimi (regresyon): Dönüş sinyali
-      • Hacim/fiyat ilişkisi: Fiyat düşerken hacim artışı = birikim sinyali
+    Teknik+değerleme puanı: RSI, 52H dip, Momentum eğimi, Hacim/fiyat.
     """
     aday = [
         "GARAN","EREGL","BIMAS","KCHOL","SISE",
@@ -1101,21 +1014,20 @@ def fp_radar():
             price  = float(clz.iloc[-1])
             rsi    = float(hesapla_rsi(clz).iloc[-1])
 
-            # 52-haftalık min-max için 1y veri
+            # [DÜZELTME 4] dip_uzaklik varsayılan değeri ile kapsam sorunu giderildi
+            dip_uzaklik = 50.0
             h52 = t.history(period="252d")
             clz52 = h52["Close"].dropna()
             low52  = float(clz52.min()) if len(clz52) > 0 else price
             high52 = float(clz52.max()) if len(clz52) > 0 else price
-            # Fiyat, 52 hafta dipten ne kadar uzakta? (0=dip, 100=zirve)
             range52 = high52 - low52
-            dip_uzaklik = ((price - low52) / range52 * 100) if range52 > 0 else 50
+            if range52 > 0:
+                dip_uzaklik = ((price - low52) / range52 * 100)
 
-            # Momentum eğimi: son 10 günün lineer regresyon eğimi
             son10 = clz.iloc[-10:].values
             egim  = float(np.polyfit(range(len(son10)), son10, 1)[0])
             egim_pct = egim / price * 100
 
-            # Hacim-fiyat ilişkisi: son 5 günde fiyat düştü mü, hacim arttı mı?
             vol_artis = 0
             if len(vol) >= 10:
                 vol_son5 = float(vol.iloc[-5:].mean())
@@ -1123,37 +1035,31 @@ def fp_radar():
                 if vol_onc5 > 0:
                     vol_artis = (vol_son5 - vol_onc5) / vol_onc5 * 100
 
-            # PUANLAMA (0-100)
             puan = 0
 
-            # RSI: 25-45 ideal değer bölgesi (ucuz ama henüz dönmemiş)
-            if 25 <= rsi <= 40:   puan += 35   # En iyi — ucuz, tepki potansiyeli
-            elif 40 < rsi <= 50:  puan += 25   # İyi
-            elif rsi < 25:        puan += 28   # Aşırı satış
+            if 25 <= rsi <= 40:   puan += 35
+            elif 40 < rsi <= 50:  puan += 25
+            elif rsi < 25:        puan += 28
             elif 50 < rsi <= 60:  puan += 15
-            else:                 puan += 5    # Pahalı RSI
+            else:                 puan += 5
 
-            # 52-hafta dip uzaklığı: dibe yakın daha iyi
             if dip_uzaklik <= 20:   puan += 30
             elif dip_uzaklik <= 35: puan += 22
             elif dip_uzaklik <= 50: puan += 14
             elif dip_uzaklik <= 65: puan += 7
 
-            # Momentum eğimi: hafif pozitif en iyi (dönüş sinyali)
-            if 0 < egim_pct <= 0.3: puan += 20   # Taze dönüş
-            elif egim_pct > 0.3:    puan += 12   # Zaten yükseliyor
-            elif -0.2 < egim_pct <= 0: puan += 10  # Yatay
-            else:                   puan += 3    # Düşüş devam
+            if 0 < egim_pct <= 0.3: puan += 20
+            elif egim_pct > 0.3:    puan += 12
+            elif -0.2 < egim_pct <= 0: puan += 10
+            else:                   puan += 3
 
-            # Hacim-fiyat birikim: fiyat ucuzken hacim artışı
             if vol_artis > 30 and rsi < 50:   puan += 15
             elif vol_artis > 10:              puan += 8
 
-            # Etiket
-            if rsi < 35:   etiket = "AŞIRI UCUZ"
-            elif dip_uzaklik < 25: etiket = "52H DİP"
-            elif egim_pct > 0:     etiket = "DÖNÜŞ SİNYALİ"
-            else:                  etiket = "DEĞER BÖLGESİ"
+            if rsi < 35:             etiket = "AŞIRI UCUZ"
+            elif dip_uzaklik < 25:   etiket = "52H DİP"
+            elif egim_pct > 0:       etiket = "DÖNÜŞ SİNYALİ"
+            else:                    etiket = "DEĞER BÖLGESİ"
 
             rows.append({
                 "Hisse":    sym,
@@ -1225,12 +1131,11 @@ btc_s   = fusd(mk["BTC_USD"],0)
 eth_s   = fusd(mk["ETH_USD"],0)
 brent_s = fusd(mk["PETROL"],1)
 
-# ── Topbar: masaüstü (f-string) + mobil (format string, CSS güvenli) ──────────
 bist_chg_html  = fchg(mk["BIST100_CHG"])
 btc_chg_html   = fchg(mk["BTC_CHG"])
 saat_str       = now.strftime('%H:%M')
 
-# Masaüstü topbar (f-string — sadece Python değişkeni, CSS yok)
+# Masaüstü topbar
 st.markdown(f"""
 <div class='topbar topbar-desktop'>
   <div class='t-logo'>
@@ -1263,7 +1168,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Mobil topbar — .format() kullanılır, f-string DEĞİL (CSS brace çakışması olmasın)
+# Mobil topbar
 _mob_tmpl = """
 <div class='topbar-mobile'>
   <div style='background:#0f172a;padding:10px 14px 6px;border-bottom:2px solid #1e3a5f;'>
@@ -1368,7 +1273,7 @@ if radar_lst:
     st.markdown(cards, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  2. STRATEJİK KARAR MATRİSİ — Top 10 (RSI+MACD+Momentum+Hacim)
+#  2. STRATEJİK KARAR MATRİSİ — Top 10
 # ═══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -1393,7 +1298,6 @@ if not df_top10.empty:
         puan  = row["Puan"]
         bar_w = min(int(puan), 100)
 
-        # TL Hacim formatla
         tl_h = row.get("TL_Hacim", 0)
         if tl_h >= 1_000_000_000:
             hacim_fmt = f"{tl_h/1_000_000_000:.1f}B ₺"
@@ -1404,20 +1308,18 @@ if not df_top10.empty:
         else:
             hacim_fmt = "—"
 
-        # Sinyal badge rengi
-        sinyal = row.get("Sinyal", "İZLE")
-        if sinyal == "GÜÇLÜ AL":
+        sinyal_str = row.get("Sinyal", "İZLE")
+        if sinyal_str == "GÜÇLÜ AL":
             sin_bg, sin_c = "#dcfce7", "#15803d"
-        elif sinyal == "AL":
+        elif sinyal_str == "AL":
             sin_bg, sin_c = "#eff6ff", "#1d4ed8"
-        elif sinyal == "DİP BÖLGE":
+        elif sinyal_str == "DİP BÖLGE":
             sin_bg, sin_c = "#fffbeb", "#92400e"
-        elif sinyal == "HABER POZ.":
+        elif sinyal_str == "HABER POZ.":
             sin_bg, sin_c = "#f5f3ff", "#6d28d9"
         else:
             sin_bg, sin_c = "#f8fafc", "#475569"
 
-        # Alt skor çubukları
         tek   = int(row.get("Tek_Puan", 0))
         duygu = int(row.get("Duygu_Puan", 0))
         anal  = int(row.get("Analitik", 0))
@@ -1456,7 +1358,7 @@ if not df_top10.empty:
           </td>
           <td>
             <span style='font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;
-              background:{sin_bg};color:{sin_c};white-space:nowrap;'>{sinyal}</span>
+              background:{sin_bg};color:{sin_c};white-space:nowrap;'>{sinyal_str}</span>
           </td>
           <td class='td-a' style='font-size:12px;'>{hacim_fmt}</td>
         </tr>"""
@@ -1493,12 +1395,8 @@ alis_pct  = min(max(50 + chg_b * 4, 30), 80)
 satis_pct = 100 - alis_pct
 hacim_str = (f"{hacim_gosterge/1_000_000_000:.1f}B ₺" if hacim_gosterge >= 1e9
              else f"{hacim_gosterge/1_000_000:.0f}M ₺" if hacim_gosterge >= 1e6 else "—")
-fn_cls    = "fn" if chg_b >= 0 else "fn fn-r"
-btf_cls   = "btf" if chg_b >= 0 else "btf btf-r"
-yon_icon  = "📈" if chg_b >= 0 else "📉"
 duygu_bar_w = duygu_val
 
-# ── F/P satırları — yeni koyu panel CSS sınıfları ile ────────────────────────
 fp_satirlar = ""
 if fp_lst:
     for i, r in enumerate(fp_lst, 1):
@@ -1523,8 +1421,6 @@ if fp_lst:
 else:
     fp_satirlar = "<div style='color:#475569;font-size:12px;padding:14px 0;text-align:center;'>Veri hesaplanıyor…</div>"
 
-
-# ── Sensör kartları — TÜMÜ tek st.markdown içinde (Streamlit grid kırmasın) ──
 hc_bar_cls = "hc-bar-g" if chg_b >= 0 else "hc-bar-r"
 yon_icon2  = "📈" if chg_b >= 0 else "📉"
 hc_renk    = "#16a34a" if chg_b >= 0 else "#dc2626"
@@ -1599,17 +1495,14 @@ kart3 = (
     f"</div>"
 )
 
-# Header + 3 kart + kapanış: HEPSİ tek st.markdown — Streamlit grid kırmaz
 sensor_html = (
     "<div style='padding:16px 24px 12px;'>"
-    # Section header
     "<div style='display:flex;align-items:center;gap:10px;margin-bottom:14px;'>"
     "<div style='width:4px;height:20px;background:#2563eb;border-radius:3px;flex-shrink:0;'></div>"
     "<span style='font-family:\"IBM Plex Mono\",monospace;font-size:11px;font-weight:700;"
     "letter-spacing:1.8px;text-transform:uppercase;color:#2563eb;'><span class='st-long'>Derin Analiz Sensörleri</span><span class='st-short'>Sensörler</span></span>"
     "<span style='margin-left:auto;font-size:11px;color:#94a3b8;'>F/P · Para Akışı · Duygu Endeksi</span>"
     "</div>"
-    # 3 kart yan yana — inline CSS grid (CSS class'a bağımlı değil)
     "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:start;'>"
     + kart1 + kart2 + kart3 +
     "</div>"
@@ -1618,12 +1511,8 @@ sensor_html = (
 
 st.markdown(sensor_html, unsafe_allow_html=True)
 
-
-
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-#  4. PİYASA İSTİHBARATI — Haber + Duygu Analizi ile Dinamik
+#  4. PİYASA İSTİHBARATI
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with st.spinner("İstihbarat analizi yapılıyor…"):
@@ -1651,7 +1540,6 @@ kripto_yorum = ("Risk iştahı yüksek. Kripto rallisi BIST'e pozitif." if btc_v
                 else "BTC konsolidasyon bandında. Makro beklenti odaklı."
                 if btc_val > 70000 else "BTC baskılı. Risk-off ortamı, savunma hisselerine yönel.")
 
-# Haber analizi sonuçlarını istihbarat kartlarına dönüştür
 def istihbarat_satirlari(liste):
     html = ""
     for item in liste[:4]:
@@ -1728,7 +1616,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  5. SON DAKİKA HABERLERİ + SOSYAL TREND
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1793,12 +1680,9 @@ def trend_satirlari(liste, max_n=6):
     return html or "<div style='color:#94a3b8;font-size:12px;padding:12px 0;'>Yükleniyor…</div>"
 
 if haberler:
-    # Haberleri tarih/saate göre sırala (en yeni üste)
     def zaman_sort_key(item):
-        try:
-            return item[0]  # "HH:MM" veya "DD.MM HH:MM" string karşılaştırma
-        except:
-            return "00:00"
+        try: return item[0]
+        except: return "00:00"
     haberler_sorted = sorted(haberler, key=zaman_sort_key, reverse=True)
     haber_html_str = haber_satirlari(haberler_sorted, 7)
 else:
@@ -1816,7 +1700,6 @@ trend_html_str = trend_satirlari(sosyal_lst, 7)
 haber_news_html = (
     "<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;'>"
 
-    # Sol: Son Dakika Haberleri
     "<div style='background:#fff;border:1.5px solid #dde3ec;border-radius:12px;padding:18px 20px;'>"
     "<div style='font-family:IBM Plex Mono,monospace;font-size:10px;font-weight:700;"
     "letter-spacing:1.5px;text-transform:uppercase;color:#1d4ed8;"
@@ -1825,7 +1708,6 @@ haber_news_html = (
     + haber_html_str +
     "</div>"
 
-    # Sağ: Sosyal / Twitter Gündem
     "<div style='background:#fff;border:1.5px solid #dde3ec;border-left:3px solid #7c3aed;"
     "border-radius:12px;padding:18px 20px;'>"
     "<div style='font-family:IBM Plex Mono,monospace;font-size:10px;font-weight:700;"
@@ -1841,13 +1723,12 @@ haber_news_html = (
 )
 st.markdown(haber_news_html, unsafe_allow_html=True)
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FOOTER
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div class='footer'>
-  <span>PAPRIKA.AI © 2026 — Elite Terminal v6.0</span>
+  <span>PAPRIKA.AI © 2026 — Elite Terminal v6.0-fix</span>
   <span>Güncelleme: {now.strftime('%d.%m.%Y %H:%M:%S')} | ⏱ 60s oto-yenileme</span>
   <span>Hisse: yfinance ~15dk · Döviz/Altın: TCMB · Kripto: CoinGecko · Haber: G.News · ⚠️ Yatırım tavsiyesi değildir</span>
 </div>
