@@ -233,6 +233,87 @@ hr{display:none!important}
 /* SCORE BAR */
 .score-bar-wrap{width:100%;background:#f1f5f9;border-radius:4px;height:6px;margin-top:4px;overflow:hidden}
 .score-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,#2563eb,#38bdf8)}
+
+/* ══ MOBİL RESPONSIVE (≤768px) ════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* Top bar — dikey yığın */
+  .topbar { height:auto; flex-direction:column; align-items:flex-start;
+            padding:10px 14px; gap:8px; }
+  .t-strip { flex-wrap:wrap; gap:0; width:100%; }
+  .t-item  { padding:4px 10px; border-left:none; border-bottom:1px solid #1e3a5f;
+             width:50%; }
+  .t-lbl   { font-size:9px; }
+  .t-val   { font-size:12px; }
+  .t-up,.t-dn,.t-fl { font-size:10px; }
+
+  /* Section wrapper padding */
+  .sw { padding:12px 14px 10px !important; }
+
+  /* Radar grid — 2 sütun */
+  .rg { grid-template-columns:repeat(2,1fr) !important; gap:6px !important; }
+  .rc { padding:10px 8px !important; }
+  .rc-tic { font-size:12px !important; }
+  .rc-fiy { font-size:12px !important; }
+  .rc-vol { font-size:9px !important; }
+
+  /* Matris tablosu — yatay kaydırma */
+  .mw { overflow-x:auto !important; -webkit-overflow-scrolling:touch; }
+  .mt { font-size:11px !important; min-width:600px; }
+  .mt th { padding:8px 10px !important; font-size:9px !important; }
+  .mt td { padding:8px 10px !important; font-size:11px !important; }
+  .td-h  { font-size:12px !important; }
+  .td-f,.td-ht,.td-u,.td-d { font-size:11px !important; }
+
+  /* Sensor grid — tek sütun */
+  .sensor-grid { grid-template-columns:1fr !important; }
+  .sensor-wrap { padding:14px 14px 18px !important; }
+
+  /* Intel grid — tek sütun */
+  .ig { grid-template-columns:1fr !important; }
+
+  /* News grid — tek sütun */
+  .ng { grid-template-columns:1fr !important; }
+
+  /* Footer — dikey */
+  .footer { flex-direction:column; gap:4px; padding:10px 14px;
+            font-size:10px !important; }
+
+  /* Inline grid'ler (sensor kartlar, istihbarat, haberler) */
+  [style*="grid-template-columns:1fr 1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr 1fr"] {
+    grid-template-columns:1fr !important;
+  }
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns:1fr !important;
+  }
+  [style*="repeat(3,1fr)"],
+  [style*="repeat(3, 1fr)"] {
+    grid-template-columns:1fr !important;
+  }
+  [style*="repeat(2,1fr)"],
+  [style*="repeat(2, 1fr)"] {
+    grid-template-columns:1fr !important;
+  }
+
+  /* Genel padding küçült */
+  [style*="padding:16px 24px"],
+  [style*="padding:18px 20px"],
+  [style*="padding:20px 24px"] {
+    padding:12px 14px !important;
+  }
+}
+
+/* ══ KÜÇÜK MOBİL (≤480px) ══════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .rg { grid-template-columns:1fr 1fr !important; }
+  .t-item { width:100%; border-bottom:1px solid #1e3a5f; }
+  .topbar-logo,.t-logo { font-size:14px !important; }
+  .t-badge { font-size:9px !important; padding:2px 6px !important; }
+  .mt { font-size:10px !important; }
+  .mt th,.mt td { padding:7px 8px !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1138,7 +1219,7 @@ st.markdown(f"""
   <div class='t-logo'>
     <div class='live-dot'></div>
     PAPRIKA<span class='dot'>.</span>AI
-    <span class='t-badge'>Emrah Finans v6 · RT</span>
+    <span class='t-badge'>Elite Terminal v6 · RT</span>
   </div>
   <div class='t-strip'>
     <div class='t-item'><span class='t-lbl'>BIST 100</span>
@@ -1684,7 +1765,7 @@ st.markdown(haber_news_html, unsafe_allow_html=True)
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div class='footer'>
-  <span>PAPRIKA.AI © 2026 — Emrah KOÇ v6.0</span>
+  <span>PAPRIKA.AI © 2026 — Elite Terminal v6.0</span>
   <span>Güncelleme: {now.strftime('%d.%m.%Y %H:%M:%S')} | ⏱ 60s oto-yenileme</span>
   <span>Hisse: yfinance ~15dk · Döviz/Altın: TCMB · Kripto: CoinGecko · Haber: G.News · ⚠️ Yatırım tavsiyesi değildir</span>
 </div>
