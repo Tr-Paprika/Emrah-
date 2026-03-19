@@ -1,12 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║          PAPRIKA ELİTE TERMİNAL  v6.3                           ║
+║          PAPRIKA ELİTE TERMİNAL  v6.2                           ║
 ║──────────────────────────────────────────────────────────────────║
 ║  pip install streamlit yfinance requests pandas numpy            ║
 ║  pip install streamlit-autorefresh                               ║
 ║  streamlit run paprika_terminal_v6.py                            ║
 ║                                                                  ║
-║  v6.3 YENİLİKLER:                                               ║
+║  v6.2 YENİLİKLER:                                               ║
 ║   • Twelve Data API entegrasyonu (dakikalık BIST verisi)         ║
 ║   • API key sidebar'dan girilir, Streamlit Secrets destekli      ║
 ║   • hisse_cek: TD → anlık quote + RSI, fallback yfinance         ║
@@ -27,47 +27,16 @@ import re
 import html as html_mod
 
 # ══════════════════════════════════════════════════════════════════
-st.set_page_config(page_title="Paprika Elite Terminal v6.3",
+st.set_page_config(page_title="Paprika Elite Terminal v6.2",
                    layout="wide", initial_sidebar_state="collapsed")
 
 try:
     from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=60_000, key="pap63")
+    st_autorefresh(interval=60_000, key="pap62")
 except ImportError:
     st.warning("⚠️ Otomatik yenileme kapalı — pip install streamlit-autorefresh")
 
-# ── Twelve Data API Key ──────────────────────────────────────────
-# 1. Streamlit Secrets'tan oku  2. Sidebar input fallback
-TD_KEY = ""
-try:
-    # Streamlit Secrets — toml formatı: TWELVE_DATA_API_KEY = "xxx"
-    if "TWELVE_DATA_API_KEY" in st.secrets:
-        TD_KEY = str(st.secrets["TWELVE_DATA_API_KEY"]).strip()
-except Exception:
-    pass
 
-with st.sidebar:
-    st.markdown("### 🔑 Twelve Data API Key")
-    st.markdown(
-        "Ücretsiz: [twelvedata.com/register](https://twelvedata.com/register)  \n"
-        "Günlük 800 istek · dakikalık BIST verisi")
-    _td_input = st.text_input(
-        "API Key (sidebar)",
-        value=TD_KEY,
-        type="password",
-        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        key="td_api_key",
-        help="Streamlit Secrets'a TWELVE_DATA_API_KEY yazarsanız otomatik okunur.")
-    # Sidebar input secrets'ı override eder (elle girilmişse)
-    if _td_input and _td_input.strip():
-        TD_KEY = _td_input.strip()
-    if TD_KEY:
-        st.success("✅ API key aktif — Twelve Data (1dk)")
-    else:
-        st.info("⚠️ Key yok — yfinance (~15dk) kullanılıyor")
-    st.markdown("---")
-    st.markdown("**Streamlit Cloud Secrets:**")
-    st.code("TWELVE_DATA_API_KEY = \"api_keyiniz\"", language="toml")
 
 # ══════════════════════════════════════════════════════════════════
 #  CSS
@@ -521,115 +490,33 @@ def radar_cek():
     return out[:8]
 
 
-def _td_api(endpoint, params, api_key):
-    """Twelve Data API yardımcı — timeout + hata yönetimi."""
-    try:
-        params["apikey"] = api_key
-        r = requests.get(
-            f"https://api.twelvedata.com/{endpoint}",
-            params=params, timeout=8,
-            headers={"User-Agent": "PaprikaTerminal/6.3"}
-        )
-        d = r.json()
-        if d.get("status") == "error" or "code" in d:
-            return None
-        return d
-    except Exception:
-        return None
-
-
 @st.cache_data(ttl=60, show_spinner=False)
-def hisse_cek(sym, api_key=""):
-    """
-    Twelve Data (birincil) → yfinance (fallback)
-    TD: /quote  → anlık fiyat, hacim, değişim
-    TD: /time_series → RSI için 30 bar 1dk
-    yfinance: 52H min/max için her zaman kullanılır
-    """
-    price = prev = chg = chg_tl = vol = tl_hacim = 0.0
-    min5 = max5 = min52 = max52 = 0.0
-    rsi14 = None
-    kaynak = "yfinance"
-
-    # ── Twelve Data ──────────────────────────────────────────────
-    if api_key and api_key.strip():
-        ak = api_key.strip()
-
-        # Anlık quote
-        q = _td_api("quote", {"symbol": sym, "exchange": "BIST"}, ak)
-        if q and q.get("close"):
-            try:
-                price   = float(q["close"])
-                prev    = float(q.get("previous_close") or price)
-                chg     = round(float(q.get("percent_change") or 0), 2)
-                chg_tl  = round(price - prev, 2)
-                vol     = float(q.get("volume") or 0)
-                tl_hacim = price * vol
-                kaynak  = "TwelveData"
-            except Exception:
-                price = 0.0
-
-        # RSI için time_series (30 bar, 1dk)
-        if price > 0:
-            ts = _td_api("time_series", {
-                "symbol": sym, "exchange": "BIST",
-                "interval": "1min", "outputsize": "35"
-            }, ak)
-            if ts and ts.get("values"):
-                try:
-                    closes = pd.Series(
-                        [float(v["close"]) for v in reversed(ts["values"])]
-                    )
-                    if len(closes) >= 16:
-                        rsi14 = round(float(calc_rsi(closes).iloc[-1]), 1)
-                    min5 = float(closes.iloc[-5:].min())
-                    max5 = float(closes.iloc[-5:].max())
-                except Exception:
-                    pass
-
-    # ── yfinance fallback / 52H verisi ───────────────────────────
+def hisse_cek(sym):
+    """60s TTL — yfinance, sym cache key."""
     try:
         t   = yf.Ticker(f"{sym}.IS")
         h30 = t.history(period="30d")
         c30 = h30["Close"].dropna()
         v30 = h30["Volume"].dropna()
-
-        if price == 0.0 and len(c30) >= 2:
-            # TD başarısız oldu, yfinance kullan
-            price    = float(c30.iloc[-1])
-            prev     = float(c30.iloc[-2])
-            chg      = round(((price - prev) / prev) * 100, 2) if prev > 0 else 0
-            chg_tl   = round(price - prev, 2)
-            vol      = float(v30.iloc[-1]) if len(v30) >= 1 else 0
-            tl_hacim = price * vol
-            kaynak   = "yfinance"
-
-        if rsi14 is None and len(c30) >= 16:
-            rsi14 = round(float(calc_rsi(c30).iloc[-1]), 1)
-
-        if min5 == 0.0 and len(c30) >= 5:
-            c5   = c30.iloc[-5:]
-            min5 = float(c5.min()); max5 = float(c5.max())
-
-        # 52H her zaman yfinance'den (TD ücretsiz planda sınırlı)
+        if len(c30) < 2: return None
+        price = float(c30.iloc[-1])
+        prev  = float(c30.iloc[-2])
+        chg   = round(((price - prev) / prev) * 100, 2) if prev > 0 else 0
+        vol   = float(v30.iloc[-1]) if len(v30) >= 1 else 0
+        c5    = c30.iloc[-5:]
+        rsi14 = round(float(calc_rsi(c30).iloc[-1]), 1) if len(c30) >= 16 else None
         h52   = t.history(period="252d")["Close"].dropna()
-        min52 = float(h52.min()) if len(h52) > 0 else price
-        max52 = float(h52.max()) if len(h52) > 0 else price
-
+        return {
+            "price": price, "prev": prev, "chg": chg,
+            "chg_tl": round(price - prev, 2),
+            "vol": vol, "tl_hacim": price * vol,
+            "min5": float(c5.min()), "max5": float(c5.max()),
+            "min52": float(h52.min()) if len(h52) > 0 else price,
+            "max52": float(h52.max()) if len(h52) > 0 else price,
+            "rsi": rsi14,
+        }
     except Exception:
-        pass
-
-    if price == 0.0:
         return None
-
-    return {
-        "price": price, "prev": prev, "chg": chg, "chg_tl": chg_tl,
-        "vol": vol, "tl_hacim": tl_hacim,
-        "min5": min5, "max5": max5,
-        "min52": min52, "max52": max52,
-        "rsi": rsi14,
-        "kaynak": kaynak,
-    }
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -967,7 +854,7 @@ st.markdown(
     "<div style='display:flex;align-items:center;gap:8px;'><div class='live-dot'></div>"
     "<span style='font-family:IBM Plex Mono,monospace;font-size:15px;font-weight:700;color:#f1f5f9;'>"
     "PAPRIKA<span style='color:#38bdf8;'>.</span>AI</span>"
-    "<span style='font-size:9px;background:#1e3a5f;color:#7dd3fc;padding:2px 7px;border-radius:4px;'>v6.3</span>"
+    "<span style='font-size:9px;background:#1e3a5f;color:#7dd3fc;padding:2px 7px;border-radius:4px;'>v6.2</span>"
     "</div>"
     f"<span style='font-family:IBM Plex Mono,monospace;font-size:12px;color:#94a3b8;'>"
     f"{now_t.strftime('%H:%M')} TR</span></div>"
@@ -1095,7 +982,7 @@ secili = st.selectbox("HİSSE SEÇ", options=BIST_FULL, index=0,
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ── Veri çek ──────────────────────────────────────────────────────
-veri = hisse_cek(secili, TD_KEY)
+veri = hisse_cek(secili)
 
 if veri:
     price = veri["price"];  chg = veri["chg"];  ctl = veri["chg_tl"]
@@ -1188,11 +1075,7 @@ if veri:
         f"<div style='font-family:IBM Plex Mono,monospace;font-size:13px;"
         f"font-weight:700;color:#475569;'>{saat_s} TR</div>"
         f"<div style='font-size:11px;color:#94a3b8;margin-top:1px;'>{tarih_s}</div>"
-        f"<div style='font-size:10px;margin-top:3px;'>"
-        f"<span style='background:{'#dcfce7' if veri.get('kaynak')=='TwelveData' else '#f1f5f9'};"
-        f"color:{'#15803d' if veri.get('kaynak')=='TwelveData' else '#64748b'};"
-        f"padding:1px 6px;border-radius:4px;font-weight:700;font-size:10px;'>"
-        f"{'⚡ TwelveData' if veri.get('kaynak')=='TwelveData' else '📊 yfinance'}</span></div>"
+        
         f"</div></div>"
 
         # ── 3 kolon grid ─────────────────────────────────────────────
@@ -1469,7 +1352,7 @@ st.markdown(
 # ══════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div class='footer'>
-  <span>PAPRIKA.AI © 2026 — Elite Terminal v6.3</span>
+  <span>PAPRIKA.AI © 2026 — Elite Terminal v6.2</span>
   <span>TR Saati: {now_t.strftime('%d.%m.%Y %H:%M:%S')} (UTC+3) | ⏱ 60s oto-yenileme</span>
   <span>yfinance ~15dk · TCMB Döviz · CoinGecko · G.News · ⚠️ Yatırım tavsiyesi değildir</span>
 </div>
