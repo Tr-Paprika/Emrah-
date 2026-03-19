@@ -934,150 +934,153 @@ else:
 # ══════════════════════════════════════════════════════════════════
 #  3. HİSSE FİYAT TAKİP MODÜLÜ  (matrisin hemen altında)
 # ══════════════════════════════════════════════════════════════════
-st.markdown("""
-<style>
-/* Hisse takip kartı içindeki Streamlit widget'larını beyaz zemine uyumlu hale getir */
-.htk-wrap { background:#fff; }
-.htk-wrap [data-testid="stSelectbox"] label { display:none !important; }
-.htk-wrap [data-testid="stSelectbox"] > div > div {
-    background:#f8fafc !important; border:1.5px solid #dde3ec !important;
-    border-radius:8px !important; font-family:'IBM Plex Mono',monospace !important;
-    font-size:14px !important; font-weight:700 !important; color:#0f172a !important;
-    box-shadow:none !important; min-height:40px !important;
-}
-.htk-wrap [data-testid="stButton"] button {
-    background:#0ea5e9 !important; color:#fff !important; border:none !important;
-    border-radius:8px !important; font-family:'IBM Plex Mono',monospace !important;
-    font-size:12px !important; font-weight:700 !important;
-    height:40px !important; width:100% !important; padding:0 12px !important;
-}
-.htk-wrap [data-testid="stButton"] button:hover { background:#0284c7 !important; }
-/* Column arka planlarını şeffaf yap — koyu gri kutu olmasın */
-.htk-wrap [data-testid="stHorizontalBlock"] {
-    background:transparent !important; padding:0 !important;
-    gap:8px !important; align-items:flex-end !important;
-}
-.htk-wrap [data-testid="column"] {
-    background:transparent !important; padding:0 !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
-# Beyaz kart başlangıcı
+# Bölüm başlığı
 st.markdown(
     "<div class='sw'>"
     "<div class='sh'>"
     "<div class='sb' style='background:#0ea5e9;'></div>"
     "<div class='stitle' style='color:#0ea5e9;'>🔎 Anlık Hisse Fiyat Takibi</div>"
-    "<div class='ssub'>Tüm Borsa İstanbul · 30s önbellek</div>"
-    "</div>"
-    "<div class='htk-wrap' style='background:#fff;border:1.5px solid #dde3ec;"
-    "border-left:4px solid #0ea5e9;border-radius:12px;padding:20px 24px;'>",
+    "<div class='ssub'>Tüm Borsa İstanbul · 30s önbellek · yfinance ~15dk</div>"
+    "</div></div>",
     unsafe_allow_html=True)
 
-# Selectbox + buton — tek satır, Streamlit native
-_c1, _c2, _c3 = st.columns([3, 1, 6], gap="small")
-with _c1:
+# Selectbox + Yenile butonu — sayfanın normal akışında, kart dışında
+_col_sel, _col_btn = st.columns([3, 1], gap="small")
+with _col_sel:
     secili = st.selectbox(
-        "x", options=BIST_FULL, index=0,
-        key="hisse_sec", label_visibility="collapsed",
-        help="300+ Borsa İstanbul hissesi")
-with _c2:
-    _yenile = st.button("🔄 Yenile", key="htk_ynl", use_container_width=True)
-    if _yenile:
+        "HİSSE SEÇ", options=BIST_FULL, index=0,
+        key="hisse_sec", help="300+ Borsa İstanbul hissesi")
+with _col_btn:
+    st.markdown("<div style='padding-top:28px;'>", unsafe_allow_html=True)
+    if st.button("🔄 Yenile", key="htk_ynl", use_container_width=True):
         st.cache_data.clear(); st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# Ayraç
-st.markdown(
-    "<div style='border-top:1.5px solid #e2e8f0;margin:14px 0 16px;'></div>",
-    unsafe_allow_html=True)
-
-# Veri render
+# Veri kartı — tamamen pure HTML, widget yok
 veri = hisse_cek(secili)
+
 if veri:
     price = veri["price"]; chg = veri["chg"]; ctl = veri["chg_tl"]
-    rk  = "#16a34a" if chg >= 0 else "#dc2626"
-    cs2 = "▲ +" if chg > 0 else "▼ "
-    rv  = veri.get("rsi"); rs2 = str(rv) if rv is not None else "—"
-    th  = hfmt(veri.get("tl_hacim", 0))
+    rk    = "#16a34a" if chg >= 0 else "#dc2626"
+    bg_rk = "#f0fdf4" if chg >= 0 else "#fef2f2"
+    cs2   = "▲" if chg > 0 else "▼"
+    rv    = veri.get("rsi"); rs2 = str(rv) if rv is not None else "—"
+    th    = hfmt(veri.get("tl_hacim", 0))
     rng52 = veri["max52"] - veri["min52"]
-    p52 = round((price - veri["min52"]) / max(rng52, 0.01) * 100, 1)
-    rrk = "#dc2626" if rv and rv > 70 else "#16a34a" if rv and rv < 30 else "#1e293b"
-    rnt = " ⚠️ Aşırı Alım" if rv and rv > 70 else " ✅ Aşırı Satış" if rv and rv < 30 else ""
-    bp  = min(max(int(p52), 0), 100)
-    brk = "#16a34a" if bp < 40 else "#d97706" if bp < 70 else "#dc2626"
-    rsw = min(max(int(rv or 50), 0), 100)
-    rsr = "#dc2626" if (rv or 50) > 70 else "#16a34a" if (rv or 50) < 30 else "#d97706"
-
-    def _mr(lbl, val, br=True):
-        bd = "border-bottom:1px solid #f1f5f9;" if br else ""
-        return (f"<div style='display:flex;justify-content:space-between;align-items:center;"
-                f"padding:9px 0;{bd}'>"
-                f"<span style='font-size:12px;color:#64748b;'>{lbl}</span>"
-                f"<span style='font-family:IBM Plex Mono,monospace;font-size:13px;"
-                f"font-weight:700;color:#1e293b;'>{val}</span></div>")
+    p52   = round((price - veri["min52"]) / max(rng52, 0.01) * 100, 1)
+    rrk   = "#dc2626" if rv and rv > 70 else "#16a34a" if rv and rv < 30 else "#2563eb"
+    rnt   = "Aşırı Alım" if rv and rv > 70 else "Aşırı Satış" if rv and rv < 30 else "Nötr"
+    bp    = min(max(int(p52), 0), 100)
+    brk   = "#16a34a" if bp < 35 else "#d97706" if bp < 70 else "#dc2626"
+    rsw   = min(max(int(rv or 50), 0), 100)
+    rsr   = "#dc2626" if (rv or 50) > 70 else "#16a34a" if (rv or 50) < 30 else "#d97706"
+    sinyal_lbl = "GÜÇLÜ AL" if (rv and rv < 35) else "AL" if (rv and rv < 45) else "İZLE" if (rv and rv < 60) else "SAT"
+    sinyal_bg  = "#dcfce7" if "AL" in sinyal_lbl else "#f1f5f9"
+    sinyal_c   = "#15803d" if "AL" in sinyal_lbl else "#475569"
 
     st.markdown(
-        "<div style='display:grid;grid-template-columns:230px 1fr;gap:28px;align-items:start;'>"
+        "<div style='padding:8px 24px 16px;'>"
 
-        # SOL — fiyat + 52H çubuğu
-        "<div>"
-        f"<div style='font-family:IBM Plex Mono,monospace;font-size:13px;font-weight:700;"
-        f"color:#64748b;margin-bottom:8px;letter-spacing:.5px;'>{secili}.IS"
-        f"<span style='font-size:10px;color:#94a3b8;font-weight:400;margin-left:8px;'>"
-        f"{now_t.strftime('%H:%M')} TR</span></div>"
+        # Ana kart
+        "<div style='background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;"
+        "overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05);'>"
 
-        f"<div style='font-family:IBM Plex Mono,monospace;font-size:34px;font-weight:700;"
-        f"color:{rk};line-height:1;margin-bottom:5px;'>₺{price:,.2f}</div>"
-
-        f"<div style='font-family:IBM Plex Mono,monospace;font-size:14px;font-weight:700;"
-        f"color:{rk};margin-bottom:4px;'>{cs2}%{abs(chg):.2f}"
-        f"<span style='font-size:12px;color:#64748b;font-weight:400;margin-left:6px;'>"
-        f"({'+' if ctl>=0 else ''}₺{ctl:,.2f})</span></div>"
-
-        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:18px;'>"
-        f"Önceki: <b style='color:#475569;'>₺{veri['prev']:,.2f}</b></div>"
-
-        f"<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;'>"
-        f"<div style='font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;"
-        f"letter-spacing:.5px;margin-bottom:7px;'>52H Pozisyon</div>"
-        f"<div style='background:#e2e8f0;border-radius:6px;height:7px;overflow:hidden;margin-bottom:6px;'>"
-        f"<div style='height:100%;width:{bp}%;background:{brk};border-radius:6px;'></div></div>"
-        f"<div style='display:flex;justify-content:space-between;font-size:10px;'>"
-        f"<span style='color:#16a34a;font-weight:700;'>DİP ₺{veri['min52']:,.2f}</span>"
-        f"<span style='color:#64748b;'>%{p52}</span>"
-        f"<span style='color:#dc2626;font-weight:700;'>ZİRVE ₺{veri['max52']:,.2f}</span>"
+        # Üst şerit — sembol + fiyat + değişim
+        f"<div style='background:#f8fafc;border-bottom:1.5px solid #e2e8f0;"
+        f"padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;'>"
+        f"<span style='font-family:IBM Plex Mono,monospace;font-size:18px;"
+        f"font-weight:700;color:#0f172a;'>{secili}"
+        f"<span style='font-size:12px;color:#94a3b8;font-weight:400;margin-left:4px;'>.IS</span>"
+        f"</span>"
+        f"<div style='width:1px;height:22px;background:#dde3ec;'></div>"
+        f"<span style='font-family:IBM Plex Mono,monospace;font-size:28px;"
+        f"font-weight:700;color:{rk};'>₺{price:,.2f}</span>"
+        f"<div style='background:{bg_rk};border-radius:8px;padding:5px 12px;"
+        f"display:flex;align-items:center;gap:6px;'>"
+        f"<span style='font-family:IBM Plex Mono,monospace;font-size:14px;"
+        f"font-weight:700;color:{rk};'>{cs2} %{abs(chg):.2f}</span>"
+        f"<span style='font-size:12px;color:#64748b;'>({'+' if ctl>=0 else ''}₺{ctl:,.2f})</span>"
+        f"</div>"
+        f"<div style='margin-left:auto;display:flex;align-items:center;gap:10px;'>"
+        f"<span style='font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;"
+        f"background:{sinyal_bg};color:{sinyal_c};letter-spacing:.4px;'>{sinyal_lbl}</span>"
+        f"<span style='font-size:10px;color:#94a3b8;'>{now_t.strftime('%H:%M')} TR</span>"
         f"</div></div>"
-        "</div>"
 
-        # SAĞ — metrikler
-        "<div>"
-        + _mr("RSI (14)",
-            f"<div style='display:flex;align-items:center;gap:10px;'>"
-            f"<div style='background:#e2e8f0;border-radius:3px;height:4px;overflow:hidden;width:70px;'>"
-            f"<div style='height:100%;width:{rsw}%;background:{rsr};border-radius:3px;'></div></div>"
-            f"<span style='color:{rrk};'>{rs2}{rnt}</span></div>")
-        + _mr("TL Hacim (Günlük)", th)
-        + _mr("5G Min / Max",
-            f"<span style='color:#16a34a;'>₺{veri['min5']:,.2f}</span>"
-            f" <span style='color:#94a3b8;font-weight:400;'>/</span> "
-            f"<span style='color:#dc2626;'>₺{veri['max5']:,.2f}</span>")
-        + _mr("52H Dip", f"<span style='color:#16a34a;'>₺{veri['min52']:,.2f}</span>")
-        + _mr("52H Zirve", f"<span style='color:#dc2626;'>₺{veri['max52']:,.2f}</span>")
-        + _mr("Hedef (+15%)",
-            f"<span style='color:#2563eb;background:#eff6ff;"
-            f"padding:2px 10px;border-radius:6px;'>₺{price*1.15:,.2f}</span>",
-            br=False)
-        + "</div></div>",
+        # İçerik — 3 eşit kolon
+        f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;'>"
+
+        # KOL 1: Temel veriler
+        f"<div style='padding:18px 20px;border-right:1px solid #f1f5f9;'>"
+        f"<div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;"
+        f"letter-spacing:1px;margin-bottom:14px;'>Temel Veriler</div>"
+        f"<div style='margin-bottom:12px;'>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:3px;'>Önceki Kapanış</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:15px;font-weight:700;"
+        f"color:#1e293b;'>₺{veri['prev']:,.2f}</div></div>"
+        f"<div style='margin-bottom:12px;'>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:3px;'>TL Hacim</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:15px;font-weight:700;"
+        f"color:#1e293b;'>{th}</div></div>"
+        f"<div>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:3px;'>Hedef (+15%)</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:15px;font-weight:700;"
+        f"color:#2563eb;'>₺{price*1.15:,.2f}</div></div>"
+        f"</div>"
+
+        # KOL 2: Fiyat aralıkları
+        f"<div style='padding:18px 20px;border-right:1px solid #f1f5f9;'>"
+        f"<div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;"
+        f"letter-spacing:1px;margin-bottom:14px;'>Fiyat Aralıkları</div>"
+        f"<div style='margin-bottom:12px;'>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:3px;'>5G Min / Max</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:14px;font-weight:700;'>"
+        f"<span style='color:#16a34a;'>₺{veri['min5']:,.2f}</span>"
+        f"<span style='color:#94a3b8;font-weight:400;'> / </span>"
+        f"<span style='color:#dc2626;'>₺{veri['max5']:,.2f}</span></div></div>"
+        f"<div style='margin-bottom:12px;'>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:3px;'>52H Min / Max</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:14px;font-weight:700;'>"
+        f"<span style='color:#16a34a;'>₺{veri['min52']:,.2f}</span>"
+        f"<span style='color:#94a3b8;font-weight:400;'> / </span>"
+        f"<span style='color:#dc2626;'>₺{veri['max52']:,.2f}</span></div></div>"
+        f"<div>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:5px;'>52H Pozisyon (%{p52} dipten)</div>"
+        f"<div style='background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;'>"
+        f"<div style='height:100%;width:{bp}%;background:{brk};border-radius:4px;'></div>"
+        f"</div></div>"
+        f"</div>"
+
+        # KOL 3: Teknik
+        f"<div style='padding:18px 20px;'>"
+        f"<div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;"
+        f"letter-spacing:1px;margin-bottom:14px;'>Teknik Göstergeler</div>"
+        f"<div>"
+        f"<div style='font-size:11px;color:#94a3b8;margin-bottom:5px;'>RSI (14)</div>"
+        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>"
+        f"<div style='background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;flex:1;'>"
+        f"<div style='height:100%;width:{rsw}%;background:{rsr};border-radius:4px;'></div></div>"
+        f"<span style='font-family:IBM Plex Mono,monospace;font-size:16px;"
+        f"font-weight:700;color:{rrk};min-width:35px;'>{rs2}</span>"
+        f"<span style='font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;"
+        f"background:{bg_rk};color:{rrk};'>{rnt}</span>"
+        f"</div></div>"
+        f"</div>"
+
+        f"</div>"  # grid kapanış
+        f"</div>"  # kart kapanış
+        f"</div>", # padding kapanış
         unsafe_allow_html=True)
+
 else:
     st.markdown(
-        f"<div style='color:#dc2626;font-size:13px;font-weight:600;'>"
-        f"⚠️ <b>{secili}</b> için veri alınamadı.</div>",
+        "<div style='padding:8px 24px 16px;'>"
+        f"<div style='background:#fff;border:1.5px solid #fca5a5;border-left:4px solid #dc2626;"
+        f"border-radius:12px;padding:18px 22px;color:#dc2626;font-size:13px;font-weight:600;'>"
+        f"⚠️ <b>{secili}</b> için veri alınamadı — Yahoo Finance'de aktif olmayabilir.</div>"
+        "</div>",
         unsafe_allow_html=True)
-
-# Kart + bölüm kapanış
-st.markdown("</div></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════
 #  4. SENSOR PANELLERİ
