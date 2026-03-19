@@ -977,13 +977,8 @@ st.markdown(
 
 # ── Selectbox (geniş) + Yenile butonu (dar) — aynı hizada ─────────
 st.markdown("<div class='htk-row'>", unsafe_allow_html=True)
-_cs, _cb = st.columns([5, 1], gap="small")
-with _cs:
-    secili = st.selectbox("HİSSE SEÇ", options=BIST_FULL, index=0,
-        key="hisse_sec", help="300+ Borsa İstanbul hissesi")
-with _cb:
-    if st.button("🔄 Yenile", key="htk_ynl", use_container_width=True):
-        st.cache_data.clear(); st.rerun()
+secili = st.selectbox("HİSSE SEÇ", options=BIST_FULL, index=0,
+    key="hisse_sec", help="300+ Borsa İstanbul hissesi")
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ── Veri çek ──────────────────────────────────────────────────────
