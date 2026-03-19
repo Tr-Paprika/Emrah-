@@ -37,10 +37,12 @@ except ImportError:
     st.warning("⚠️ Otomatik yenileme kapalı — pip install streamlit-autorefresh")
 
 # ── Twelve Data API Key ──────────────────────────────────────────
-# Önce Streamlit Secrets'tan oku (production), yoksa sidebar
-_TD_KEY_SECRET = ""
+# 1. Streamlit Secrets'tan oku  2. Sidebar input fallback
+TD_KEY = ""
 try:
-    _TD_KEY_SECRET = st.secrets.get("TWELVE_DATA_API_KEY", "")
+    # Streamlit Secrets — toml formatı: TWELVE_DATA_API_KEY = "xxx"
+    if "TWELVE_DATA_API_KEY" in st.secrets:
+        TD_KEY = str(st.secrets["TWELVE_DATA_API_KEY"]).strip()
 except Exception:
     pass
 
@@ -50,18 +52,22 @@ with st.sidebar:
         "Ücretsiz: [twelvedata.com/register](https://twelvedata.com/register)  \n"
         "Günlük 800 istek · dakikalık BIST verisi")
     _td_input = st.text_input(
-        "API Key", value=_TD_KEY_SECRET,
-        type="password", placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "API Key (sidebar)",
+        value=TD_KEY,
+        type="password",
+        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         key="td_api_key",
-        help="Twelve Data API key'inizi girin. Streamlit Secrets'ta TWELVE_DATA_API_KEY olarak da saklayabilirsiniz.")
-    TD_KEY = _td_input.strip() if _td_input else _TD_KEY_SECRET
+        help="Streamlit Secrets'a TWELVE_DATA_API_KEY yazarsanız otomatik okunur.")
+    # Sidebar input secrets'ı override eder (elle girilmişse)
+    if _td_input and _td_input.strip():
+        TD_KEY = _td_input.strip()
     if TD_KEY:
-        st.success("✅ API key aktif — dakikalık veri")
+        st.success("✅ API key aktif — Twelve Data (1dk)")
     else:
-        st.info("⚠️ Key girilmedi — yfinance (~15dk) kullanılıyor")
+        st.info("⚠️ Key yok — yfinance (~15dk) kullanılıyor")
     st.markdown("---")
-    st.markdown("**Nasıl alınır?**")
-    st.markdown("1. twelvedata.com/register → ücretsiz kayıt  \n2. Dashboard → API Keys  \n3. Key'i yukarıya yapıştır")
+    st.markdown("**Streamlit Cloud Secrets:**")
+    st.code("TWELVE_DATA_API_KEY = \"api_keyiniz\"", language="toml")
 
 # ══════════════════════════════════════════════════════════════════
 #  CSS
